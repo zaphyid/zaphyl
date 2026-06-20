@@ -4,6 +4,28 @@ All notable changes to Zaphyl are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project aims to follow
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-06-20
+
+### Added
+
+- Site management CLI: `zaphyl site add/list/remove/enable/disable` and
+  `zaphyl reload`. One command stands up a website - static, a PHP framework
+  layout (served from `<root>/public`), or a proxied app (`--app <url>`) - with
+  the kind auto-detected, automatic HTTPS by default (opt out with `--no-tls` or
+  a local domain like `*.test`/`*.local`/`localhost`/an IP), and the file
+  location printed plainly. Each site is one file under a sites directory that
+  the main config auto-includes; host-specific routes win over the catch-all.
+- `zaphyl run` and bare invocation still start the server, so existing setups
+  and the systemd unit are unchanged.
+
+### Fixed
+
+- WebSocket proxying is now reliable. An upgrade tunnel could intermittently
+  close right after the `101` for a bodyless upgrade request, surfacing to
+  clients as an abnormal close on the first frame. The HTTP/1.1 duplex path is
+  fixed via a vendored `pingora-proxy 0.8.1` (`[patch.crates-io]`) carrying a
+  minimal change to `proxy_1to1`; see `vendor/pingora-proxy/ZAPHYL-PATCH.md`.
+
 ## [1.0.2] - 2026-06-19
 
 First tagged release - a memory-safe HTTP/1·2·3 reverse proxy on Pingora.
@@ -41,4 +63,5 @@ First tagged release - a memory-safe HTTP/1·2·3 reverse proxy on Pingora.
 - Request bodies and (on HTTP/3) header sections are size-bounded; the on-disk
   cache decoder bounds every allocation against the data actually present.
 
+[1.1.0]: https://github.com/zaphyid/zaphyl/releases/tag/v1.1.0
 [1.0.2]: https://github.com/zaphyid/zaphyl/releases/tag/v1.0.2

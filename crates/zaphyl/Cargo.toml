@@ -52,8 +52,8 @@ assets = [
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-zaphyl-core = { path = "../zaphyl-core", version = "1.0.2" }
-zaphyl-config = { path = "../zaphyl-config", version = "1.0.2" }
+zaphyl-core = { path = "../zaphyl-core", version = "1.1.0" }
+zaphyl-config = { path = "../zaphyl-config", version = "1.1.0" }
 pingora = { version = "0.8", default-features = false, features = ["boringssl", "proxy"] }
 async-trait = "0.1"
 # ring backend (prefixed symbols) so it co-links with Pingora's BoringSSL.
@@ -83,7 +83,7 @@ brotli = "3"
 zstd = "0.13"
 # Guess Content-Type for static files by extension.
 mime_guess = "2"
-zaphyl-plugin = { version = "1.0.2", path = "../zaphyl-plugin" }
+zaphyl-plugin = { version = "1.1.0", path = "../zaphyl-plugin" }
 
 [dev-dependencies]
 tiny_http = "0.12"

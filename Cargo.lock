@@ -4838,7 +4838,7 @@ dependencies = [
 
 [[package]]
 name = "zaphyl"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "async-trait",
  "brotli",
@@ -4875,7 +4875,7 @@ dependencies = [
 
 [[package]]
 name = "zaphyl-config"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "serde",
  "thiserror 2.0.18",
@@ -4884,7 +4884,7 @@ dependencies = [
 
 [[package]]
 name = "zaphyl-core"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "ipnet",
  "percent-encoding",
@@ -4892,7 +4892,7 @@ dependencies = [
 
 [[package]]
 name = "zaphyl-plugin"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "wasmtime",

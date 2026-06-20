@@ -1,0 +1,88 @@
+Zaphyl release system - how to cut a release
+=============================================
+
+A release is driven entirely by pushing a git tag named v<version> (e.g.
+v1.2.0). The .github/workflows/release.yml workflow triggers on tags matching
+"v*" and builds and publishes everything automatically:
+  - Linux binaries for x86_64 and aarch64
+  - .deb and .rpm packages (with the systemd unit and welcome page)
+  - a multi-arch container image pushed to GHCR
+  - a GitHub Release whose notes are the matching "## [<version>]" section of
+    CHANGELOG.md
+
+All builds run on Linux CI. Pingora is Linux-only; there is no native Windows
+binary (Windows users run via Docker or WSL2).
+
+Versioning is SemVer. Bug fixes -> patch (1.1.1). Backward-compatible features
+-> minor (1.2.0). Breaking changes -> major (2.0.0).
+
+----------------------------------------------------------------------
+ONE-TIME / per-release prep (do this for every release)
+----------------------------------------------------------------------
+
+1. Bump the version in THREE places (keep all four numbers identical):
+     - Cargo.toml                     -> [workspace.package] version = "X.Y.Z"
+     - crates/zaphyl/Cargo.toml       -> zaphyl-core    version = "X.Y.Z"
+     - crates/zaphyl/Cargo.toml       -> zaphyl-config  version = "X.Y.Z"
+     - crates/zaphyl/Cargo.toml       -> zaphyl-plugin  version = "X.Y.Z"
+   Do NOT touch vendor/pingora-proxy (it stays pinned to its upstream version).
+
+2. Add a new section at the top of CHANGELOG.md:
+     ## [X.Y.Z] - YYYY-MM-DD
+     ### Added / ### Changed / ### Fixed / ### Security
+     ...
+   and add the link line at the bottom:
+     [X.Y.Z]: https://github.com/zaphyid/zaphyl/releases/tag/vX.Y.Z
+   The release notes are taken verbatim from this section, so write it for users.
+
+3. Verify locally (all under WSL2; native Windows build is not possible):
+     wsl bash -lc "cd /mnt/c/signelith && cargo build --workspace"
+     wsl bash -lc "cd /mnt/c/signelith && cargo test --workspace"
+     wsl bash -lc "cd /mnt/c/signelith && cargo fmt --all --check"
+     wsl bash -lc "cd /mnt/c/signelith && cargo clippy --all-targets --all-features --workspace -- -D warnings"
+   The version-metadata test (zaphyl-core) confirms the binary reports X.Y.Z.
+   For a WebSocket-affecting change, also loop the guard a few times:
+     wsl bash -lc 'cd /mnt/c/signelith && for i in $(seq 1 10); do cargo test -p zaphyl --test websocket 2>&1 | grep "test result"; done'
+
+4. Commit the bump:
+     git add Cargo.toml crates/zaphyl/Cargo.toml CHANGELOG.md Cargo.lock
+     git commit -m "chore: release X.Y.Z"
+
+----------------------------------------------------------------------
+CUT THE RELEASE
+----------------------------------------------------------------------
+
+5. Tag (annotated) and push. Pushing the tag is what publishes the release:
+     git tag -a vX.Y.Z -m "Zaphyl X.Y.Z"
+     git push origin main
+     git push origin vX.Y.Z
+
+   Push the branch first, then the tag, so the workflow checks out a commit
+   that already exists on the remote.
+
+6. Watch the run:
+     https://github.com/zaphyid/zaphyl/actions
+   When green, the GitHub Release and GHCR image are live.
+
+----------------------------------------------------------------------
+NOTES / GOTCHAS
+----------------------------------------------------------------------
+
+- Commit identity must be:  zaphyl <masterdev@zaphyid.org>
+  (git config user.name "zaphyl"; git config user.email "masterdev@zaphyid.org")
+  No AI / Co-Authored-By trailers in commits.
+
+- If a tag was pushed by mistake (before the build finishes / notes are wrong):
+     git push origin :refs/tags/vX.Y.Z     # delete the remote tag
+     git tag -d vX.Y.Z                      # delete it locally
+  then fix and re-tag. A GitHub Release already created must be deleted in the
+  GitHub UI.
+
+- The vendored pingora-proxy patch (vendor/pingora-proxy, wired via
+  [patch.crates-io]) fixes a WebSocket upgrade race. On a future Pingora bump,
+  follow vendor/pingora-proxy/ZAPHYL-PATCH.md: if upstream has fixed it, drop the
+  vendored crate, the [patch] stanza, and the workspace exclude entry; otherwise
+  re-vendor and re-apply the documented diff. The websocket test guards this.
+
+- _local/ and .superpowers/ are gitignored (design notes, plans, scratch) and
+  never ship.
