@@ -239,11 +239,24 @@ where
                 },
 
                 body = rx.recv(), if !request_done => {
+                    // None (channel closed) or UpgradedBody signals the real end of the
+                    // tunnel. A plain Body(None, true) that was queued before the 101 was
+                    // received must not permanently finish the request side or close the
+                    // tunnel - the upgraded frames have not been forwarded yet.
+                    let is_upgraded_task =
+                        matches!(&body, Some(HttpTask::UpgradedBody(..)) | None);
                     match send_body_to1(client_session, body).await {
                         Ok(send_done) => {
-                            request_done = send_done;
-                            // An upgraded request is terminated when either side is done
-                            if request_done && client_session.was_upgraded() {
+                            // After the upgrade, only UpgradedBody or channel-close should
+                            // finish the request side. A stale pre-upgrade Body(None, true)
+                            // must not block subsequent UpgradedBody frames.
+                            if !client_session.was_upgraded() || is_upgraded_task {
+                                request_done = send_done;
+                            }
+                            // An upgraded request is terminated when either side is done,
+                            // but only when the termination came from an upgraded-body task
+                            // (or a closed channel), not from the pre-upgrade Body(None, true).
+                            if request_done && client_session.was_upgraded() && is_upgraded_task {
                                 response_done = true;
                             }
                         },
@@ -485,16 +498,24 @@ where
                         // set to downstream
                         let upgraded = session.was_upgraded();
                         let response_done = session.write_response_tasks(filtered_tasks).await?;
-                        if !upgraded && session.was_upgraded() && downstream_state.can_poll() {
+                        let just_upgraded = !upgraded && session.was_upgraded();
+                        if just_upgraded && downstream_state.can_poll() {
                             // just upgraded, the downstream state should be reset to continue to
                             // poll body
                             trace!("reset downstream state on upgrade");
                             downstream_state.reset();
                         }
-                        response_state.maybe_set_upstream_done(response_done);
-                        // unsuccessful upgrade response (or end of upstream upgraded conn,
-                        // which forces the body reader to complete) may force the request done
-                        downstream_state.maybe_finished(session.is_body_done());
+                        // A 101 is the START of an upgraded tunnel, not its end. Marking the
+                        // upstream response done (or re-finishing the bodyless downstream) here
+                        // races the reset above and can close the tunnel right after the 101.
+                        // Skip both when we just upgraded; the tunnel terminates later via the
+                        // normal close paths.
+                        if !just_upgraded {
+                            response_state.maybe_set_upstream_done(response_done);
+                            // unsuccessful upgrade response (or end of upstream upgraded conn,
+                            // which forces the body reader to complete) may force the request done
+                            downstream_state.maybe_finished(session.is_body_done());
+                        }
                     } else {
                         debug!("empty upstream event");
                         response_state.maybe_set_upstream_done(true);

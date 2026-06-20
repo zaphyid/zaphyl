@@ -73,6 +73,7 @@ async fn spawn_proxy(config: &str, port: u16) -> ChildGuard {
 }
 
 #[tokio::test]
+#[allow(clippy::result_large_err)]
 async fn proxies_websocket_upgrade() {
     // The Pingora 0.8.1 HTTP/1.1 duplex path has a race that closes a
     // WebSocket tunnel right after the 101 for a no-body upgrade request. A
@@ -99,7 +100,11 @@ async fn proxies_websocket_upgrade() {
             .await
             .unwrap_or_else(|| panic!("cycle {cycle}: no reply"))
             .unwrap_or_else(|e| panic!("cycle {cycle}: reply error: {e:?}"));
-        assert_eq!(reply.into_text().unwrap().to_string(), "hello", "cycle {cycle}");
+        assert_eq!(
+            reply.into_text().unwrap().to_string(),
+            "hello",
+            "cycle {cycle}"
+        );
 
         ws.close(None).await.unwrap();
     }
