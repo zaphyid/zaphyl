@@ -42,3 +42,33 @@ fn site_add_writes_a_static_site_file() {
     assert!(written.contains("tls = \"off\""));
     assert!(webroot.join("blog").is_dir());
 }
+
+#[test]
+fn site_disable_then_list_marks_it_disabled() {
+    let base = std::env::temp_dir().join("zaphyl-cli-disable");
+    let sites = base.join("sites");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&sites).unwrap();
+    std::fs::write(
+        sites.join("x.test.toml"),
+        "domain = \"x.test\"\nroot = \"/var/www/x\"\ntype = \"static\"\ntls = \"off\"\n",
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_zaphyl"))
+            .args(args)
+            .env("ZAPHYL_SITES_DIR", &sites)
+            .output()
+            .unwrap()
+    };
+
+    assert!(run(&["site", "disable", "x.test"]).status.success());
+    let body = std::fs::read_to_string(sites.join("x.test.toml")).unwrap();
+    assert!(body.contains("enabled = false"));
+
+    let listed = run(&["site", "list"]);
+    let text = String::from_utf8_lossy(&listed.stdout);
+    assert!(text.contains("x.test"));
+    assert!(text.to_lowercase().contains("disabled"));
+}

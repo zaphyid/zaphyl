@@ -122,10 +122,10 @@ pub fn run_site(cmd: SiteCmd) -> std::process::ExitCode {
             r#static,
             no_tls,
         } => run_site_add(&domain, root, app, php, r#static, no_tls),
-        _ => {
-            eprintln!("not yet implemented");
-            std::process::ExitCode::FAILURE
-        }
+        SiteCmd::List => run_site_list(),
+        SiteCmd::Remove { domain } => run_site_remove(&domain),
+        SiteCmd::Enable { domain } => run_site_set_enabled(&domain, true),
+        SiteCmd::Disable { domain } => run_site_set_enabled(&domain, false),
     }
 }
 
@@ -188,13 +188,145 @@ fn run_site_add(
     println!("  Web root  : {}", root.display());
     println!("  Kind      : {kind:?}");
     println!("  URL       : {scheme}://{domain}/");
+    if !tls_off {
+        println!(
+            "  Note: for automatic HTTPS, ensure the main config listens on 443 with [acme] and 80 for redirects"
+        );
+    }
 
     std::process::ExitCode::SUCCESS
 }
 
+fn sites_dir() -> PathBuf {
+    std::env::var("ZAPHYL_SITES_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/etc/zaphyl/sites"))
+}
+
+fn run_site_list() -> std::process::ExitCode {
+    let dir = sites_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd,
+        Err(e) => {
+            eprintln!("zaphyl: cannot read sites directory {}: {e}", dir.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let mut paths: Vec<_> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+        .collect();
+    paths.sort();
+
+    for path in paths {
+        let body = match std::fs::read_to_string(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("zaphyl: cannot read {}: {e}", path.display());
+                continue;
+            }
+        };
+        let site = match zaphyl_config::sites::SiteConfig::from_toml(&body) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("zaphyl: cannot parse {}: {e}", path.display());
+                continue;
+            }
+        };
+        let kind_str = match site.kind {
+            zaphyl_config::sites::SiteKind::Static => "static",
+            zaphyl_config::sites::SiteKind::Php => "php",
+            zaphyl_config::sites::SiteKind::App => "app",
+        };
+        let status = if site.enabled { "enabled" } else { "DISABLED" };
+        println!("{} [{}] ({})", site.domain, kind_str, status);
+    }
+    std::process::ExitCode::SUCCESS
+}
+
+fn run_site_remove(domain: &str) -> std::process::ExitCode {
+    let dir = sites_dir();
+    let path = dir.join(format!("{domain}.toml"));
+    if !path.exists() {
+        eprintln!(
+            "zaphyl: site file not found: {} (no site named '{domain}')",
+            path.display()
+        );
+        return std::process::ExitCode::FAILURE;
+    }
+    if let Err(e) = std::fs::remove_file(&path) {
+        eprintln!("zaphyl: could not remove {}: {e}", path.display());
+        return std::process::ExitCode::FAILURE;
+    }
+    println!("Removed site: {domain}");
+    std::process::ExitCode::SUCCESS
+}
+
+fn run_site_set_enabled(domain: &str, enabled: bool) -> std::process::ExitCode {
+    let dir = sites_dir();
+    let path = dir.join(format!("{domain}.toml"));
+    let body = match std::fs::read_to_string(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("zaphyl: cannot read {}: {e}", path.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    let site = match zaphyl_config::sites::SiteConfig::from_toml(&body) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("zaphyl: cannot parse {}: {e}", path.display());
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+
+    let tls_off = matches!(site.tls, zaphyl_config::sites::SiteTls::Off);
+    let mut new_toml = write_site_toml(
+        &site.domain,
+        std::path::Path::new(&site.root),
+        site.kind,
+        tls_off,
+        site.app.as_deref(),
+    );
+    new_toml.push_str(&format!("enabled = {enabled}\n"));
+
+    if let Err(e) = std::fs::write(&path, &new_toml) {
+        eprintln!("zaphyl: could not write {}: {e}", path.display());
+        return std::process::ExitCode::FAILURE;
+    }
+    let action = if enabled { "enabled" } else { "disabled" };
+    println!("Site {action}: {domain}");
+    std::process::ExitCode::SUCCESS
+}
+
 pub fn run_reload() -> std::process::ExitCode {
-    eprintln!("not yet implemented");
-    std::process::ExitCode::FAILURE
+    if std::path::Path::new("/run/systemd/system").exists() {
+        let status = std::process::Command::new("systemctl")
+            .args(["reload", "zaphyl"])
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                println!("Reloaded zaphyl.");
+                std::process::ExitCode::SUCCESS
+            }
+            Ok(s) => {
+                eprintln!(
+                    "zaphyl: systemctl reload zaphyl exited with status {}",
+                    s.code().unwrap_or(-1)
+                );
+                std::process::ExitCode::FAILURE
+            }
+            Err(e) => {
+                eprintln!("zaphyl: failed to run systemctl: {e}");
+                std::process::ExitCode::FAILURE
+            }
+        }
+    } else {
+        println!("Reload Zaphyl to apply (systemctl reload zaphyl, or restart the service)");
+        std::process::ExitCode::SUCCESS
+    }
 }
 
 #[cfg(test)]
