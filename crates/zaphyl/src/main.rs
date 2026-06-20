@@ -1016,12 +1016,7 @@ fn main() {
         std::process::exit(2);
     };
 
-    let toml = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        eprintln!("zaphyl: cannot read {}: {e}", path.display());
-        std::process::exit(1);
-    });
-
-    let config = Config::from_toml(&toml).unwrap_or_else(|e| {
+    let config = Config::load(&path).unwrap_or_else(|e| {
         eprintln!("zaphyl: {e}");
         std::process::exit(1);
     });
