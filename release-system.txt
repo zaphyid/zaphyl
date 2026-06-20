@@ -20,7 +20,7 @@ Versioning is SemVer. Bug fixes -> patch (1.1.1). Backward-compatible features
 ONE-TIME / per-release prep (do this for every release)
 ----------------------------------------------------------------------
 
-1. Bump the version in THREE places (keep all four numbers identical):
+1. Bump the version in FOUR places (keep all four numbers identical):
      - Cargo.toml                     -> [workspace.package] version = "X.Y.Z"
      - crates/zaphyl/Cargo.toml       -> zaphyl-core    version = "X.Y.Z"
      - crates/zaphyl/Cargo.toml       -> zaphyl-config  version = "X.Y.Z"
@@ -35,7 +35,19 @@ ONE-TIME / per-release prep (do this for every release)
      [X.Y.Z]: https://github.com/zaphyid/zaphyl/releases/tag/vX.Y.Z
    The release notes are taken verbatim from this section, so write it for users.
 
-3. Verify locally (all under WSL2; native Windows build is not possible):
+3. Review the shipped docs for this release (easy to forget - do not skip):
+     - README.md     -> the "Status: `X.Y.Z`" line, and add/mention any NEW
+                        user-facing feature shipping in this version (e.g. a new
+                        CLI command). Verify CLI flags against the actual source.
+     - SECURITY.md   -> any version/maturity language ("pre-1.0", "Supported
+                        versions") still matches reality.
+     - web/index.html and the binary read their version from Cargo metadata, so
+       they update automatically - no edit needed there.
+   Sweep for stale strings (should print nothing):
+     grep -rniE 'pre-1\.0|<old-version>' --include='*.md' --include='*.html' . \
+       | grep -vE 'vendor/|_local/|\.superpowers/|target/|CHANGELOG.md'
+
+4. Verify locally (all under WSL2; native Windows build is not possible):
      wsl bash -lc "cd /mnt/c/signelith && cargo build --workspace"
      wsl bash -lc "cd /mnt/c/signelith && cargo test --workspace"
      wsl bash -lc "cd /mnt/c/signelith && cargo fmt --all --check"
@@ -44,23 +56,26 @@ ONE-TIME / per-release prep (do this for every release)
    For a WebSocket-affecting change, also loop the guard a few times:
      wsl bash -lc 'cd /mnt/c/signelith && for i in $(seq 1 10); do cargo test -p zaphyl --test websocket 2>&1 | grep "test result"; done'
 
-4. Commit the bump:
-     git add Cargo.toml crates/zaphyl/Cargo.toml CHANGELOG.md Cargo.lock
+5. Commit the bump (include any docs touched in step 3):
+     git add Cargo.toml crates/zaphyl/Cargo.toml CHANGELOG.md Cargo.lock \
+             README.md SECURITY.md
      git commit -m "chore: release X.Y.Z"
 
 ----------------------------------------------------------------------
 CUT THE RELEASE
 ----------------------------------------------------------------------
 
-5. Tag (annotated) and push. Pushing the tag is what publishes the release:
+6. Tag (annotated) and push. Pushing the tag is what publishes the release:
      git tag -a vX.Y.Z -m "Zaphyl X.Y.Z"
      git push origin main
      git push origin vX.Y.Z
 
    Push the branch first, then the tag, so the workflow checks out a commit
-   that already exists on the remote.
+   that already exists on the remote. Tags are immutable - if docs need a fix
+   AFTER tagging, push the fix to main and leave the tag as-is (a docs-only
+   change does not alter the published binary, packages, or image).
 
-6. Watch the run:
+7. Watch the run:
      https://github.com/zaphyid/zaphyl/actions
    When green, the GitHub Release and GHCR image are live.
 
