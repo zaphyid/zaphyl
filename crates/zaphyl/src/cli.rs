@@ -22,7 +22,7 @@ pub enum Command {
     /// Manage sites.
     #[command(subcommand)]
     Site(SiteCmd),
-    /// Apply config changes to the running server.
+    /// Print guidance to apply config changes to the running server.
     Reload,
 }
 
@@ -41,6 +41,9 @@ pub enum SiteCmd {
         r#static: bool,
         #[arg(long)]
         no_tls: bool,
+        /// Overwrite an existing site file if one already exists.
+        #[arg(long)]
+        force: bool,
     },
     /// List configured sites.
     List,
@@ -81,6 +84,14 @@ pub fn is_local(domain: &str) -> bool {
     domain.parse::<std::net::IpAddr>().is_ok()
 }
 
+/// Escape a string for use inside a TOML basic string (double-quoted).
+///
+/// Replaces `\` with `\\` and `"` with `\"` so that the emitted TOML is
+/// always well-formed regardless of what characters the value contains.
+fn toml_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Serialize a site configuration to TOML that round-trips through
 /// `zaphyl_config::sites::SiteConfig::from_toml`.
 ///
@@ -92,6 +103,7 @@ fn write_site_toml(
     kind: SiteKind,
     tls_off: bool,
     app: Option<&str>,
+    php_fpm: Option<&str>,
 ) -> String {
     let kind_str = match kind {
         SiteKind::Static => "static",
@@ -99,17 +111,32 @@ fn write_site_toml(
         SiteKind::App => "app",
     };
     let tls_str = if tls_off { "off" } else { "auto" };
-    let root_str = root.to_string_lossy();
+    let root_str = toml_escape(&root.to_string_lossy());
+    let domain_str = toml_escape(domain);
 
     let mut out = String::new();
-    out.push_str(&format!("domain = \"{domain}\"\n"));
+    out.push_str(&format!("domain = \"{domain_str}\"\n"));
     out.push_str(&format!("root = \"{root_str}\"\n"));
     out.push_str(&format!("type = \"{kind_str}\"\n"));
     out.push_str(&format!("tls = \"{tls_str}\"\n"));
     if let Some(upstream) = app {
-        out.push_str(&format!("app = \"{upstream}\"\n"));
+        out.push_str(&format!("app = \"{}\"\n", toml_escape(upstream)));
+    }
+    if let Some(fpm) = php_fpm {
+        out.push_str(&format!("php_fpm = \"{}\"\n", toml_escape(fpm)));
     }
     out
+}
+
+/// Flags for the `site add` subcommand, gathered in one place so the inner
+/// function stays within clippy's argument-count limit.
+struct SiteAddOpts {
+    root: Option<PathBuf>,
+    app: Option<String>,
+    force_php: bool,
+    force_static: bool,
+    no_tls: bool,
+    force: bool,
 }
 
 pub fn run_site(cmd: SiteCmd) -> std::process::ExitCode {
@@ -121,7 +148,24 @@ pub fn run_site(cmd: SiteCmd) -> std::process::ExitCode {
             php,
             r#static,
             no_tls,
-        } => run_site_add(&domain, root, app, php, r#static, no_tls),
+            force,
+        } => {
+            let sites_dir = std::env::var("ZAPHYL_SITES_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/etc/zaphyl/sites"));
+            let webroot_base = std::env::var("ZAPHYL_WEBROOT_BASE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/var/www"));
+            let opts = SiteAddOpts {
+                root,
+                app,
+                force_php: php,
+                force_static: r#static,
+                no_tls,
+                force,
+            };
+            run_site_add_inner(&domain, opts, &sites_dir, &webroot_base)
+        }
         SiteCmd::List => run_site_list(),
         SiteCmd::Remove { domain } => run_site_remove(&domain),
         SiteCmd::Enable { domain } => run_site_set_enabled(&domain, true),
@@ -129,23 +173,22 @@ pub fn run_site(cmd: SiteCmd) -> std::process::ExitCode {
     }
 }
 
-fn run_site_add(
+/// Core logic for `site add`, separated from env-var resolution to allow
+/// direct testing without mutating process-global environment.
+fn run_site_add_inner(
     domain: &str,
-    root: Option<PathBuf>,
-    app: Option<String>,
-    force_php: bool,
-    force_static: bool,
-    no_tls: bool,
+    opts: SiteAddOpts,
+    sites_dir: &Path,
+    webroot_base: &Path,
 ) -> std::process::ExitCode {
-    // Resolve the sites directory.
-    let sites_dir = std::env::var("ZAPHYL_SITES_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/etc/zaphyl/sites"));
-
-    // Resolve the web root: explicit --root, or /var/www/<domain>.
-    let webroot_base = std::env::var("ZAPHYL_WEBROOT_BASE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/var/www"));
+    let SiteAddOpts {
+        root,
+        app,
+        force_php,
+        force_static,
+        no_tls,
+        force,
+    } = opts;
     let root = root.unwrap_or_else(|| webroot_base.join(domain));
 
     // Detect kind; explicit flags win.
@@ -168,6 +211,25 @@ fn run_site_add(
     // Decide TLS.
     let tls_off = no_tls || is_local(domain);
 
+    // Ensure the sites directory exists.
+    if let Err(e) = std::fs::create_dir_all(sites_dir) {
+        eprintln!(
+            "zaphyl: could not create sites directory {}: {e}",
+            sites_dir.display()
+        );
+        return std::process::ExitCode::FAILURE;
+    }
+
+    // Refuse to overwrite an existing site unless --force was given.
+    let site_file = sites_dir.join(format!("{domain}.toml"));
+    if site_file.exists() && !force {
+        eprintln!(
+            "zaphyl: site {domain} already exists at {} (use --force to overwrite)",
+            site_file.display()
+        );
+        return std::process::ExitCode::FAILURE;
+    }
+
     // Create the web root directory.
     if let Err(e) = std::fs::create_dir_all(&root) {
         eprintln!("zaphyl: could not create web root {}: {e}", root.display());
@@ -175,8 +237,7 @@ fn run_site_add(
     }
 
     // Write the site file.
-    let site_file = sites_dir.join(format!("{domain}.toml"));
-    let toml = write_site_toml(domain, &served_root, kind, tls_off, app.as_deref());
+    let toml = write_site_toml(domain, &served_root, kind, tls_off, app.as_deref(), None);
     if let Err(e) = std::fs::write(&site_file, &toml) {
         eprintln!("zaphyl: could not write {}: {e}", site_file.display());
         return std::process::ExitCode::FAILURE;
@@ -289,6 +350,7 @@ fn run_site_set_enabled(domain: &str, enabled: bool) -> std::process::ExitCode {
         site.kind,
         tls_off,
         site.app.as_deref(),
+        site.php_fpm.as_deref(),
     );
     new_toml.push_str(&format!("enabled = {enabled}\n"));
 
@@ -301,32 +363,18 @@ fn run_site_set_enabled(domain: &str, enabled: bool) -> std::process::ExitCode {
     std::process::ExitCode::SUCCESS
 }
 
+/// Print guidance to restart the service so that site changes take effect.
+///
+/// Phase 1 has no config hot-reload: the server does not install a SIGHUP
+/// handler and the service unit has no ExecReload. Instructing the operator
+/// to restart is the honest and safe action in all environments.
 pub fn run_reload() -> std::process::ExitCode {
     if std::path::Path::new("/run/systemd/system").exists() {
-        let status = std::process::Command::new("systemctl")
-            .args(["reload", "zaphyl"])
-            .status();
-        match status {
-            Ok(s) if s.success() => {
-                println!("Reloaded zaphyl.");
-                std::process::ExitCode::SUCCESS
-            }
-            Ok(s) => {
-                eprintln!(
-                    "zaphyl: systemctl reload zaphyl exited with status {}",
-                    s.code().unwrap_or(-1)
-                );
-                std::process::ExitCode::FAILURE
-            }
-            Err(e) => {
-                eprintln!("zaphyl: failed to run systemctl: {e}");
-                std::process::ExitCode::FAILURE
-            }
-        }
+        println!("Run: systemctl restart zaphyl to apply site changes");
     } else {
-        println!("Reload Zaphyl to apply (systemctl reload zaphyl, or restart the service)");
-        std::process::ExitCode::SUCCESS
+        println!("Restart Zaphyl to apply site changes (e.g. systemctl restart zaphyl)");
     }
+    std::process::ExitCode::SUCCESS
 }
 
 #[cfg(test)]
@@ -417,6 +465,28 @@ mod tests {
         assert!(!is_local("blog.example.com"));
     }
 
+    // --- toml_escape ---
+
+    #[test]
+    fn toml_escape_plain_string_unchanged() {
+        assert_eq!(toml_escape("hello/world"), "hello/world");
+    }
+
+    #[test]
+    fn toml_escape_backslash_is_doubled() {
+        assert_eq!(toml_escape(r"C:\path\to"), r"C:\\path\\to");
+    }
+
+    #[test]
+    fn toml_escape_double_quote_is_escaped() {
+        assert_eq!(toml_escape(r#"say "hi""#), r#"say \"hi\""#);
+    }
+
+    #[test]
+    fn toml_escape_both_special_chars() {
+        assert_eq!(toml_escape(r#"C:\say "hi""#), r#"C:\\say \"hi\""#);
+    }
+
     // --- write_site_toml round-trip ---
 
     #[test]
@@ -424,7 +494,7 @@ mod tests {
         use zaphyl_config::sites::{SiteConfig, SiteTls};
         let tmp = std::env::temp_dir().join("zaphyl-toml-static");
         let root = tmp.join("www").join("blog");
-        let toml = write_site_toml("blog.test", &root, SiteKind::Static, true, None);
+        let toml = write_site_toml("blog.test", &root, SiteKind::Static, true, None, None);
         let parsed = SiteConfig::from_toml(&toml).expect("TOML must round-trip");
         assert_eq!(parsed.domain, "blog.test");
         assert_eq!(parsed.root, root.to_string_lossy());
@@ -444,6 +514,7 @@ mod tests {
             SiteKind::App,
             false,
             Some("http://127.0.0.1:3000"),
+            None,
         );
         let parsed = SiteConfig::from_toml(&toml).expect("TOML must round-trip");
         assert_eq!(parsed.domain, "myapp.example.com");
@@ -456,9 +527,271 @@ mod tests {
     fn php_site_toml_round_trips() {
         use zaphyl_config::sites::{SiteConfig, SiteTls};
         let root = Path::new("/var/www/phpsite/public");
-        let toml = write_site_toml("phpsite.local", root, SiteKind::Php, true, None);
+        let toml = write_site_toml("phpsite.local", root, SiteKind::Php, true, None, None);
         let parsed = SiteConfig::from_toml(&toml).expect("TOML must round-trip");
         assert_eq!(parsed.kind, SiteKind::Php);
         assert_eq!(parsed.tls, SiteTls::Off);
+    }
+
+    // --- FIX 4: TOML escape round-trip with special characters ---
+
+    #[test]
+    fn toml_escape_in_root_with_backslash_and_quote_round_trips() {
+        use zaphyl_config::sites::SiteConfig;
+        // A root path containing both a backslash and a double-quote - this is
+        // the exact case that produces malformed TOML without escaping.
+        let tricky_root = Path::new("/var/www/say\"hello\\world");
+        let toml = write_site_toml(
+            "escape.test",
+            tricky_root,
+            SiteKind::Static,
+            true,
+            None,
+            None,
+        );
+        let parsed = SiteConfig::from_toml(&toml)
+            .expect("TOML with special chars in root must still round-trip");
+        assert_eq!(
+            parsed.root,
+            tricky_root.to_string_lossy().as_ref(),
+            "root must survive the TOML round-trip unchanged"
+        );
+        assert_eq!(parsed.domain, "escape.test");
+    }
+
+    #[test]
+    fn toml_escape_in_app_with_special_chars_round_trips() {
+        use zaphyl_config::sites::SiteConfig;
+        let root = Path::new("/var/www/app");
+        // An app upstream containing a double-quote (unusual but must not break TOML).
+        let upstream = "http://127.0.0.1:3000/path?a=\"b\"";
+        let toml = write_site_toml("app.test", root, SiteKind::App, true, Some(upstream), None);
+        let parsed =
+            SiteConfig::from_toml(&toml).expect("TOML with special chars in app must round-trip");
+        assert_eq!(
+            parsed.app.as_deref(),
+            Some(upstream),
+            "app upstream must survive TOML round-trip unchanged"
+        );
+    }
+
+    // --- FIX 5: php_fpm preserved through enable/disable rewrite ---
+
+    #[test]
+    fn php_fpm_survives_disable_enable_rewrite() {
+        use zaphyl_config::sites::{SiteConfig, SiteTls};
+
+        let original_toml = concat!(
+            "domain = \"phpsite.local\"\n",
+            "root = \"/var/www/php\"\n",
+            "type = \"php\"\n",
+            "tls = \"off\"\n",
+            "php_fpm = \"127.0.0.1:9000\"\n",
+        );
+
+        // Parse the original.
+        let site = SiteConfig::from_toml(original_toml).expect("original TOML must parse");
+        assert_eq!(site.php_fpm.as_deref(), Some("127.0.0.1:9000"));
+        assert!(site.enabled, "site should start enabled");
+
+        // Simulate disable: rewrite via write_site_toml then append enabled = false.
+        let tls_off = matches!(site.tls, SiteTls::Off);
+        let mut disabled_toml = write_site_toml(
+            &site.domain,
+            Path::new(&site.root),
+            site.kind,
+            tls_off,
+            site.app.as_deref(),
+            site.php_fpm.as_deref(),
+        );
+        disabled_toml.push_str("enabled = false\n");
+
+        let disabled_site =
+            SiteConfig::from_toml(&disabled_toml).expect("disabled TOML must parse");
+        assert!(!disabled_site.enabled, "site must be disabled");
+        assert_eq!(
+            disabled_site.php_fpm.as_deref(),
+            Some("127.0.0.1:9000"),
+            "php_fpm must be preserved after disable rewrite"
+        );
+
+        // Simulate enable: rewrite again with enabled = true.
+        let mut enabled_toml = write_site_toml(
+            &disabled_site.domain,
+            Path::new(&disabled_site.root),
+            disabled_site.kind,
+            matches!(disabled_site.tls, SiteTls::Off),
+            disabled_site.app.as_deref(),
+            disabled_site.php_fpm.as_deref(),
+        );
+        enabled_toml.push_str("enabled = true\n");
+
+        let enabled_site = SiteConfig::from_toml(&enabled_toml).expect("enabled TOML must parse");
+        assert!(enabled_site.enabled, "site must be enabled again");
+        assert_eq!(
+            enabled_site.php_fpm.as_deref(),
+            Some("127.0.0.1:9000"),
+            "php_fpm must be preserved after enable rewrite"
+        );
+    }
+
+    // --- FIX 1: run_reload always returns SUCCESS ---
+
+    #[test]
+    fn run_reload_returns_success() {
+        // run_reload now only prints guidance and never calls systemctl,
+        // so it must always return SUCCESS regardless of the environment.
+        let code = run_reload();
+        assert_eq!(
+            code,
+            std::process::ExitCode::SUCCESS,
+            "run_reload must always return SUCCESS"
+        );
+    }
+
+    // --- FIX 2: site add creates the sites directory if missing ---
+
+    #[test]
+    fn site_add_creates_sites_dir_when_missing() {
+        // Pick a directory path that does NOT yet exist.
+        let base = std::env::temp_dir().join("zaphyl-fix2-sites-missing");
+        let _ = std::fs::remove_dir_all(&base);
+        // base exists but sites/ inside it does not.
+        std::fs::create_dir_all(&base).unwrap();
+        let sites_dir = base.join("sites-new");
+        let webroot = base.join("www");
+
+        // sites_dir must NOT exist before we call run_site_add_inner.
+        assert!(!sites_dir.exists(), "sites_dir must not exist before test");
+
+        let code = run_site_add_inner(
+            "missing-dir.test",
+            SiteAddOpts {
+                root: None,
+                app: None,
+                force_php: false,
+                force_static: false,
+                no_tls: true,
+                force: false,
+            },
+            &sites_dir,
+            &webroot,
+        );
+
+        assert_eq!(
+            code,
+            std::process::ExitCode::SUCCESS,
+            "site add must succeed even when sites dir does not yet exist"
+        );
+        assert!(
+            sites_dir.join("missing-dir.test.toml").exists(),
+            "site file must be created inside the newly created sites dir"
+        );
+    }
+
+    // --- FIX 3: site add refuses to overwrite without --force ---
+
+    #[test]
+    fn site_add_refuses_overwrite_without_force() {
+        let base = std::env::temp_dir().join("zaphyl-fix3-no-overwrite");
+        let _ = std::fs::remove_dir_all(&base);
+        let sites_dir = base.join("sites");
+        let webroot = base.join("www");
+        std::fs::create_dir_all(&sites_dir).unwrap();
+
+        // Write an existing site file with recognisable content.
+        let original_content =
+            "domain = \"dup.test\"\nroot = \"/original\"\ntype = \"static\"\ntls = \"off\"\n";
+        std::fs::write(sites_dir.join("dup.test.toml"), original_content).unwrap();
+
+        // Without --force: must FAIL and leave the original file intact.
+        let code_no_force = run_site_add_inner(
+            "dup.test",
+            SiteAddOpts {
+                root: None,
+                app: None,
+                force_php: false,
+                force_static: false,
+                no_tls: true,
+                force: false,
+            },
+            &sites_dir,
+            &webroot,
+        );
+        assert_eq!(
+            code_no_force,
+            std::process::ExitCode::FAILURE,
+            "site add without --force must FAIL when site already exists"
+        );
+        // Original content must still be present.
+        let after_no_force = std::fs::read_to_string(sites_dir.join("dup.test.toml")).unwrap();
+        assert_eq!(
+            after_no_force, original_content,
+            "original file must be untouched when --force is absent"
+        );
+
+        // With --force: must SUCCEED and overwrite.
+        let code_with_force = run_site_add_inner(
+            "dup.test",
+            SiteAddOpts {
+                root: None,
+                app: None,
+                force_php: false,
+                force_static: false,
+                no_tls: true,
+                force: true,
+            },
+            &sites_dir,
+            &webroot,
+        );
+        assert_eq!(
+            code_with_force,
+            std::process::ExitCode::SUCCESS,
+            "site add with --force must SUCCEED"
+        );
+        let after_force = std::fs::read_to_string(sites_dir.join("dup.test.toml")).unwrap();
+        assert!(
+            !after_force.contains("/original"),
+            "after --force the original content must be replaced"
+        );
+    }
+
+    #[test]
+    fn site_add_without_force_leaves_original_file_intact() {
+        let base = std::env::temp_dir().join("zaphyl-fix3-original-intact");
+        let _ = std::fs::remove_dir_all(&base);
+        let sites_dir = base.join("sites");
+        let webroot = base.join("www");
+        std::fs::create_dir_all(&sites_dir).unwrap();
+
+        let original_content =
+            "domain = \"intact.test\"\nroot = \"/untouched\"\ntype = \"static\"\ntls = \"off\"\n";
+        std::fs::write(sites_dir.join("intact.test.toml"), original_content).unwrap();
+
+        let code = run_site_add_inner(
+            "intact.test",
+            SiteAddOpts {
+                root: None,
+                app: None,
+                force_php: false,
+                force_static: false,
+                no_tls: true,
+                force: false,
+            },
+            &sites_dir,
+            &webroot,
+        );
+
+        assert_eq!(
+            code,
+            std::process::ExitCode::FAILURE,
+            "must refuse without --force"
+        );
+        // File must be completely unchanged.
+        let after = std::fs::read_to_string(sites_dir.join("intact.test.toml")).unwrap();
+        assert_eq!(
+            after, original_content,
+            "original file must not be touched when --force is absent"
+        );
     }
 }
