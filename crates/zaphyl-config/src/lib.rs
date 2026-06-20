@@ -305,6 +305,56 @@ pub enum ConfigError {
 }
 
 impl Config {
+    /// Load the main config file plus every `*.toml` in its `sites/` directory.
+    ///
+    /// # Errors
+    /// Fails if a file cannot be read or parsed.
+    pub fn load(main: &std::path::Path) -> Result<Config, ConfigError> {
+        let text = std::fs::read_to_string(main)
+            .map_err(|e| ConfigError::Invalid(format!("cannot read {}: {e}", main.display())))?;
+        let mut config = Config::from_toml(&text)?;
+
+        let sites_dir = main.parent().unwrap_or(std::path::Path::new(".")).join("sites");
+        let mut site_files: Vec<_> = match std::fs::read_dir(&sites_dir) {
+            Ok(rd) => rd
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "toml"))
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        site_files.sort();
+
+        let mut site_routes = Vec::new();
+        let mut acme_domains = Vec::new();
+        for path in site_files {
+            let body = std::fs::read_to_string(&path)
+                .map_err(|e| ConfigError::Invalid(format!("cannot read {}: {e}", path.display())))?;
+            let site = crate::sites::SiteConfig::from_toml(&body)?;
+            if let Some(route) = site.to_route() {
+                site_routes.push(route);
+            }
+            if let Some(domain) = site.tls_domain() {
+                acme_domains.push(domain.to_owned());
+            }
+        }
+
+        // Host-specific site routes win over the main config's catch-all.
+        site_routes.append(&mut config.routes);
+        config.routes = site_routes;
+
+        // Merge auto-TLS domains into ACME when ACME is configured.
+        if let Some(acme) = config.acme.as_mut() {
+            for d in acme_domains {
+                if !acme.domains.contains(&d) {
+                    acme.domains.push(d);
+                }
+            }
+        }
+
+        Ok(config)
+    }
+
     /// Parse and validate a [`Config`] from a TOML string.
     ///
     /// # Errors
