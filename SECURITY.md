@@ -18,8 +18,8 @@ and credit reporters who wish to be named once a fix is released.
 
 ## Supported versions
 
-Zaphyl is pre-1.0 and under active development. Security fixes land on `main`
-and in the latest release. Until 1.0, only the most recent release is supported.
+Zaphyl is early (1.x) and under active development. Security fixes land on
+`main` and in the latest release. Only the most recent release is supported.
 
 ## Security posture
 
@@ -44,7 +44,7 @@ What the codebase does to limit its attack surface:
 - **Supply chain.** CI runs `cargo-deny` (RUSTSEC advisories, license policy,
   and source allow-listing) on every change.
 
-## Known limitations (pre-1.0)
+## Known limitations
 
 Stated plainly so operators can compensate:
 

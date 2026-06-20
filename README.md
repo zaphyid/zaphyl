@@ -11,7 +11,7 @@ One binary terminates HTTP/1.1, HTTP/2, and HTTP/3 (QUIC), obtains and renews it
 own TLS certificates, load-balances to your upstreams, and is extensible with
 sandboxed WebAssembly plugins.
 
-> **Status: `0.1.0`, early.** Zaphyl is feature-complete enough to be useful but
+> **Status: `1.1.0`, early.** Zaphyl is feature-complete enough to be useful but
 > has **no production track record** and has not been independently audited.
 > Try it, report issues - don't put it in front of critical traffic yet. See
 > [SECURITY.md](SECURITY.md) for the security posture and known limitations.
@@ -22,6 +22,9 @@ sandboxed WebAssembly plugins.
   (QUIC) including replay-safe 0-RTT. HTTP/2 and gRPC upstreams are supported.
 - **Automatic HTTPS** - obtain and renew certificates over ACME (Let's Encrypt),
   or supply your own. Certificates hot-reload without a restart.
+- **One-command site management** - `zaphyl site add <domain>` stands up a
+  static site, a PHP framework layout, or a proxied app, with the kind
+  auto-detected and automatic HTTPS by default. No editing of the main config.
 - **Reverse proxy** - host/path routing, round-robin load balancing, passive
   health checks, path-prefix rewriting, and per-route request/response headers.
 - **WebSocket and gRPC** pass-through.
@@ -93,6 +96,34 @@ Run it:
 ```
 
 Zaphyl now forwards everything on `:8080` to `127.0.0.1:3000`.
+
+## Managing sites
+
+For full installs, the `zaphyl site` commands add and manage websites without
+hand-editing the main config. Each site is one file under `/etc/zaphyl/sites/`,
+which the main config includes automatically.
+
+```sh
+# Static site (kind auto-detected; HTTPS on by default via ACME)
+zaphyl site add example.com
+
+# A PHP framework (Laravel/Symfony/CodeIgniter): served from <root>/public
+zaphyl site add example.com --php
+
+# Proxy to an app (Node, Octane, FrankenPHP, a container, ...)
+zaphyl site add example.com --app http://127.0.0.1:8000
+
+zaphyl site list
+zaphyl site disable example.com     # stop serving without deleting the file
+zaphyl site enable  example.com
+zaphyl site remove  example.com
+zaphyl reload                       # apply changes
+```
+
+`site add` creates the web root (default `/var/www/<domain>`), prints where to
+put your files, and turns on automatic HTTPS unless you pass `--no-tls` or the
+domain is local (`*.test`, `*.local`, `localhost`, or a bare IP). Use `--root`
+to choose the directory and `--force` to overwrite an existing site.
 
 ## Configuration
 
