@@ -314,7 +314,10 @@ impl Config {
             .map_err(|e| ConfigError::Invalid(format!("cannot read {}: {e}", main.display())))?;
         let mut config = Config::from_toml(&text)?;
 
-        let sites_dir = main.parent().unwrap_or(std::path::Path::new(".")).join("sites");
+        let sites_dir = main
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("sites");
         let mut site_files: Vec<_> = match std::fs::read_dir(&sites_dir) {
             Ok(rd) => rd
                 .filter_map(Result::ok)
@@ -328,8 +331,9 @@ impl Config {
         let mut site_routes = Vec::new();
         let mut acme_domains = Vec::new();
         for path in site_files {
-            let body = std::fs::read_to_string(&path)
-                .map_err(|e| ConfigError::Invalid(format!("cannot read {}: {e}", path.display())))?;
+            let body = std::fs::read_to_string(&path).map_err(|e| {
+                ConfigError::Invalid(format!("cannot read {}: {e}", path.display()))
+            })?;
             let site = crate::sites::SiteConfig::from_toml(&body)?;
             if let Some(route) = site.to_route() {
                 site_routes.push(route);
