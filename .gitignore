@@ -20,3 +20,6 @@
 
 # Browser-preview artifacts
 /.playwright-mcp/
+
+# Subagent-driven-development scratch
+/.superpowers/
