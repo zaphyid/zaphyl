@@ -8,7 +8,8 @@ members = [
     "crates/zaphyl-plugin",
 ]
 # The test plugin targets wasm32 and is built separately via cargo-component.
-exclude = ["test-plugins/filter"]
+# The vendored pingora-proxy is a third-party patch target, not our code.
+exclude = ["test-plugins/filter", "vendor/pingora-proxy"]
 
 [workspace.package]
 version = "1.0.2"
@@ -28,6 +29,11 @@ missing_docs = "warn"
 
 [workspace.lints.clippy]
 all = "warn"
+
+# Vendored pingora-proxy 0.8.1 with a minimal fix for the WebSocket upgrade
+# duplex race. See vendor/pingora-proxy/ZAPHYL-PATCH.md.
+[patch.crates-io]
+pingora-proxy = { path = "vendor/pingora-proxy" }
 
 # Release profile tuned for a production network service.
 [profile.release]

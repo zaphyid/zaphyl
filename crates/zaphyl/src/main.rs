@@ -1,6 +1,7 @@
 //! Zaphyl server entrypoint: load a config file and run the reverse proxy.
 
 mod acme;
+mod cli;
 mod http3;
 mod http_front;
 mod metrics;
@@ -1010,18 +1011,21 @@ fn spawn_health_prober(
     });
 }
 
-fn main() {
-    let Some(path) = config_path_from_args() else {
+fn main() -> std::process::ExitCode {
+    use clap::Parser as _;
+    let parsed = cli::Cli::parse();
+    match parsed.command {
+        Some(cli::Command::Site(cmd)) => return cli::run_site(cmd),
+        Some(cli::Command::Reload) => return cli::run_reload(),
+        Some(cli::Command::Run) | None => {}
+    }
+
+    let Some(path) = parsed.config.or_else(config_path_from_args) else {
         eprintln!("usage: zaphyl --config <path>");
         std::process::exit(2);
     };
 
-    let toml = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        eprintln!("zaphyl: cannot read {}: {e}", path.display());
-        std::process::exit(1);
-    });
-
-    let config = Config::from_toml(&toml).unwrap_or_else(|e| {
+    let config = Config::load(&path).unwrap_or_else(|e| {
         eprintln!("zaphyl: {e}");
         std::process::exit(1);
     });
@@ -1165,4 +1169,6 @@ fn main() {
         config.routes.len()
     );
     server.run_forever();
+    #[allow(unreachable_code)]
+    std::process::ExitCode::SUCCESS
 }

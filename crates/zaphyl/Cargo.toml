@@ -51,6 +51,7 @@ assets = [
 [package.metadata.generate-rpm.requires]
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 zaphyl-core = { path = "../zaphyl-core", version = "1.0.2" }
 zaphyl-config = { path = "../zaphyl-config", version = "1.0.2" }
 pingora = { version = "0.8", default-features = false, features = ["boringssl", "proxy"] }
