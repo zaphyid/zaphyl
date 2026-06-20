@@ -4845,6 +4845,7 @@ dependencies = [
  "async-trait",
  "brotli",
  "bytes",
+ "clap",
  "flate2",
  "futures-util",
  "h3",
