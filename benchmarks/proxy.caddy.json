@@ -1,0 +1,23 @@
+{
+  "admin": { "disabled": true },
+  "logging": { "logs": { "default": { "level": "ERROR" } } },
+  "apps": {
+    "http": {
+      "servers": {
+        "proxy": {
+          "listen": ["127.0.0.1:18082"],
+          "routes": [
+            {
+              "handle": [
+                {
+                  "handler": "reverse_proxy",
+                  "upstreams": [{ "dial": "127.0.0.1:18080" }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Test plugin: build output and cargo-component's generated bindings.
+/test-plugins/*/target
+/test-plugins/*/src/bindings.rs
+
+# Cargo.lock IS committed (Zaphyl is an application - reproducible builds).
+
+# Local-only working files. NEVER committed. Internal notes, planning, dev log.
+*.local.md
+/_local/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Browser-preview artifacts
+/.playwright-mcp/

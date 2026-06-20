@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  test:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BoringSSL build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-dev golang pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+      - name: Install cargo-component (for the WASM plugin test)
+        run: |
+          rustup target add wasm32-wasip1
+          cargo install cargo-component --locked
+      - name: Build the sample WASM plugin
+        run: cargo component build --release --manifest-path test-plugins/filter/Cargo.toml
+      - name: Test
+        run: cargo test --all-features --workspace
+
+  msrv:
+    name: MSRV (1.94)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install BoringSSL build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-dev golang pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@1.94
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-features
+
+  supply-chain:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  acme-e2e:
+    name: ACME e2e (Pebble)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-dev pkg-config libssl-dev curl
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Pebble
+        run: |
+          go install github.com/letsencrypt/pebble/v2/cmd/pebble@latest
+          go install github.com/letsencrypt/pebble/v2/cmd/pebble-challtestsrv@latest
+      - name: ACME integration test
+        run: cargo test --test acme -- --ignored --nocapture

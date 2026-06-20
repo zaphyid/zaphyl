@@ -1,0 +1,116 @@
+# Zaphyl example configuration.
+#
+# Only `listen` and at least one `[[route]]` are required; everything else is
+# optional. Pass this file with `zaphyl --config zaphyl.toml`.
+
+# Address the HTTP/1·2 listener binds to.
+listen = "0.0.0.0:8080"
+
+# Worker threads for the HTTP/1·2 listener. Defaults to the number of CPUs.
+# worker_threads = 8
+
+# On SIGTERM, seconds to let in-flight requests drain before exiting. Defaults
+# to 5 (kept short for Docker/Kubernetes; raise it for long-running requests).
+# shutdown_grace_seconds = 5
+
+# Extra headers added to every response.
+# [response_headers]
+# server = "zaphyl"
+
+
+# ----------------------------------------------------------------------------
+# TLS - choose ONE of [tls] or [acme].
+# ----------------------------------------------------------------------------
+
+# Static certificate (hot-reloaded if the files change on disk).
+# [tls]
+# cert = "/etc/zaphyl/cert.pem"
+# key  = "/etc/zaphyl/key.pem"
+
+# Automatic HTTPS via ACME (Let's Encrypt). Obtains and renews certificates.
+# [acme]
+# domains               = ["example.com", "www.example.com"]
+# email                 = "you@example.com"
+# directory             = "https://acme-v02.api.letsencrypt.org/directory"
+# cache_dir             = "./acme"   # account key + issued certs are stored here
+# renew_before_days     = 30
+# check_interval_seconds = 43200
+
+
+# ----------------------------------------------------------------------------
+# HTTP/3 (QUIC) and the plain-HTTP front.
+# ----------------------------------------------------------------------------
+
+# Serve HTTP/3 on this UDP address (requires [tls] or [acme]).
+# [http3]
+# listen = "0.0.0.0:443"
+
+# A plaintext listener that redirects to HTTPS and answers ACME challenges.
+# [http]
+# listen = "0.0.0.0:80"
+
+
+# ----------------------------------------------------------------------------
+# Cross-cutting features.
+# ----------------------------------------------------------------------------
+
+# Compress responses (gzip/brotli/zstd, negotiated with the client). 0-9.
+# [compression]
+# level = 6
+
+# Cache cacheable responses. Add `disk_path` to also persist across restarts.
+# [cache]
+# max_entries    = 1024
+# max_body_bytes = 1048576
+# disk_path      = "/var/cache/zaphyl"
+
+# Allow/deny clients by IP or CIDR. `deny` wins over `allow`.
+# [access]
+# allow = ["10.0.0.0/8", "192.168.1.5"]
+# deny  = ["10.0.99.0/24"]
+
+# Per-client-IP rate limit.
+# [rate_limit]
+# requests_per_second = 100
+
+# Request limits and upstream timeouts.
+# [limits]
+# max_request_body_bytes        = 10485760
+# max_request_header_bytes      = 65536   # HTTP/3 header section cap
+# upstream_connect_timeout_seconds = 5
+# upstream_read_timeout_seconds    = 30
+
+# Passive health checks: TCP-probe upstreams and skip unhealthy ones.
+# [health_check]
+# interval_seconds = 5
+
+# Prometheus metrics endpoint.
+# [metrics]
+# listen = "127.0.0.1:9090"
+
+# WASM plugins applied to every request, before any per-route plugins.
+# [plugins]
+# global         = ["./plugins/log.wasm"]
+# max_body_bytes = 1048576   # bodies larger than this bypass plugins
+
+
+# ----------------------------------------------------------------------------
+# Routes - tried in order; the first match wins.
+# ----------------------------------------------------------------------------
+
+[[route]]
+# host = "example.com"          # match this Host (omit to match any)
+# path = "/api"                 # match this path prefix (omit to match any)
+upstream = "127.0.0.1:3000"     # one target, or a list for round-robin:
+# upstream = ["10.0.0.1:8000", "10.0.0.2:8000"]
+# tls          = true           # connect to the upstream over TLS
+# grpc         = true           # speak HTTP/2 to the upstream (for gRPC)
+# strip_prefix = true           # drop the matched path prefix before forwarding
+# root         = "/var/www"     # serve static files instead of proxying
+# plugins      = ["./plugins/auth.wasm"]
+
+# [route.request_headers]        # headers added to the upstream request
+# x-forwarded-host = "example.com"
+
+# [route.response_headers]       # headers added to the client response
+# cache-control = "public, max-age=60"

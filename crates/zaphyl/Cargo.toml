@@ -1,0 +1,100 @@
+[package]
+name = "zaphyl"
+description = "Zaphyl - a memory-safe web server and reverse proxy built on Pingora."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+default-run = "zaphyl"
+
+[[bin]]
+name = "zaphyl"
+path = "src/main.rs"
+
+# Debian/Ubuntu package (cargo-deb).
+[package.metadata.deb]
+maintainer = "Zaphyl <masterdev@zaphyid.org>"
+copyright = "2026, Zaphyl"
+license-file = ["../../LICENSE", "0"]
+extended-description = "A memory-safe HTTP/1, HTTP/2, and HTTP/3 reverse proxy and web server built on Cloudflare's Pingora, with automatic HTTPS, caching, compression, and sandboxed WebAssembly plugins."
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/zaphyl", "usr/bin/", "755"],
+    ["../../packaging/default.toml", "etc/zaphyl/zaphyl.toml", "644"],
+    ["../../zaphyl.example.toml", "etc/zaphyl/zaphyl.example.toml", "644"],
+    ["../../web/index.html", "usr/share/zaphyl/html/index.html", "644"],
+    ["../../README.md", "usr/share/doc/zaphyl/README.md", "644"],
+]
+
+[package.metadata.deb.systemd-units]
+unit-scripts = "../../packaging"
+unit-name = "zaphyl"
+enable = false
+start = false
+
+# RHEL/Fedora/SUSE package (cargo-generate-rpm).
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/zaphyl", dest = "/usr/bin/zaphyl", mode = "755" },
+    { source = "packaging/default.toml", dest = "/etc/zaphyl/zaphyl.toml", mode = "644", config = true },
+    { source = "zaphyl.example.toml", dest = "/etc/zaphyl/zaphyl.example.toml", mode = "644" },
+    { source = "web/index.html", dest = "/usr/share/zaphyl/html/index.html", mode = "644" },
+    { source = "packaging/zaphyl.service", dest = "/usr/lib/systemd/system/zaphyl.service", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/zaphyl/README.md", mode = "644" },
+]
+[package.metadata.generate-rpm.requires]
+
+[dependencies]
+zaphyl-core = { path = "../zaphyl-core", version = "1.0.2" }
+zaphyl-config = { path = "../zaphyl-config", version = "1.0.2" }
+pingora = { version = "0.8", default-features = false, features = ["boringssl", "proxy"] }
+async-trait = "0.1"
+# ring backend (prefixed symbols) so it co-links with Pingora's BoringSSL.
+instant-acme = { version = "0.8", default-features = false, features = ["ring", "hyper-rustls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "io-util"] }
+prometheus = "0.13"
+# HTTP/3 (QUIC) listener - ring backend to co-link with Pingora's BoringSSL.
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+bytes = "1"
+http = "1"
+# Upstream HTTP client for forwarding HTTP/3 requests.
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1"] }
+http-body-util = "0.1"
+tokio-stream = "0.1"
+webpki-roots = "0.26"
+# Parse certificate expiry to decide when to renew.
+x509-parser = "0.16"
+# Compress the HTTP/3 response body. gzip (pure-Rust miniz_oxide) plus brotli
+# (pure Rust) and zstd, matching the HTTP/1·2 path's content-coding choices.
+flate2 = "1"
+brotli = "3"
+zstd = "0.13"
+# Guess Content-Type for static files by extension.
+mime_guess = "2"
+zaphyl-plugin = { version = "1.0.2", path = "../zaphyl-plugin" }
+
+[dev-dependencies]
+tiny_http = "0.12"
+rcgen = "0.14"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
+futures-util = "0.3"
+hyper = { version = "1", features = ["server", "http2"] }
+hyper-util = { version = "0.1", features = ["server", "tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+
+[lints]
+workspace = true

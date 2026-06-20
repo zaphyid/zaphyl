@@ -1,0 +1,47 @@
+# cargo-deny: advisories, license policy, source trust.
+
+[advisories]
+version = 2
+yanked = "deny"
+# Only enforce "unmaintained" for crates we directly own. We can't control crates
+# pulled in transitively by Pingora (derivative, daemonize, ...) until upstream
+# moves off them.
+unmaintained = "workspace"
+# Documented, assessed exception for a vulnerability we cannot currently fix
+# because it lives in Pingora's transitive tree. Re-evaluate on every Pingora
+# upgrade and remove once it is no longer pulled in.
+ignore = [
+    # protobuf 2.x: stack overflow when PARSING untrusted input. Reaches us only
+    # via prometheus -> pingora-core, which uses protobuf to ENCODE metrics, not
+    # to parse untrusted data - the vulnerable path is not exercised. No in-range
+    # fix (needs prometheus to adopt protobuf >= 3.7.2).
+    "RUSTSEC-2024-0437",
+]
+
+[licenses]
+version = 2
+# Permissive licenses allowed for dependencies.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    # Mozilla webpki-roots certificate data (pulled in transitively by the
+    # ACME client's TLS stack).
+    "CDLA-Permissive-2.0",
+    # Wasmtime and Cranelift (the WASM plugin host) are Apache-2.0 with the
+    # standard LLVM exception, which is more permissive, not less.
+    "Apache-2.0 WITH LLVM-exception",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

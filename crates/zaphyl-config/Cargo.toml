@@ -1,0 +1,20 @@
+[package]
+name = "zaphyl-config"
+description = "Configuration types and parsing for Zaphyl."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+
+[lints]
+workspace = true

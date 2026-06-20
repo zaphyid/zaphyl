@@ -1,0 +1,9 @@
+# Keep the build context small and reproducible.
+/target
+/test-plugins/*/target
+/_local
+/.git
+/.github
+/benchmarks
+*.md
+!README.md

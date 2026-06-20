@@ -1,0 +1,21 @@
+# Standalone (excluded from the main workspace): builds for wasm32 via
+# cargo-component. Used by zaphyl-plugin's tests as a sample plugin.
+[package]
+name = "zaphyl-test-filter"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+wit-bindgen-rt = { version = "0.44.0", features = ["bitflags"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "zaphyl:test-filter"
+
+[profile.release]
+opt-level = "s"
+strip = true

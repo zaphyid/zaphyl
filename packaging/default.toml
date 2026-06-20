@@ -1,0 +1,10 @@
+# Default Zaphyl configuration.
+#
+# It serves the built-in welcome page so you can confirm the server is working.
+# Replace it with your own routes and upstreams - see the fully commented
+# reference at /etc/zaphyl/zaphyl.example.toml - then reload the service.
+
+listen = "0.0.0.0:80"
+
+[[route]]
+root = "/usr/share/zaphyl/html"

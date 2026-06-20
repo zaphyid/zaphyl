@@ -1,0 +1,26 @@
+[Unit]
+Description=Zaphyl reverse proxy and web server
+Documentation=https://github.com/zaphyid/zaphyl
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/zaphyl --config /etc/zaphyl/zaphyl.toml
+Restart=on-failure
+RestartSec=2
+
+# Run unprivileged but still able to bind 80/443.
+DynamicUser=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+# Writable state (ACME account/cert cache, on-disk response cache).
+StateDirectory=zaphyl
+WorkingDirectory=/var/lib/zaphyl
+
+[Install]
+WantedBy=multi-user.target

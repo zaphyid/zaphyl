@@ -1,0 +1,38 @@
+# Pingora and the HTTP/3 stack are added later, once the proxy is wired up.
+[workspace]
+resolver = "3"
+members = [
+    "crates/zaphyl",
+    "crates/zaphyl-core",
+    "crates/zaphyl-config",
+    "crates/zaphyl-plugin",
+]
+# The test plugin targets wasm32 and is built separately via cargo-component.
+exclude = ["test-plugins/filter"]
+
+[workspace.package]
+version = "1.0.2"
+edition = "2024"
+rust-version = "1.94"
+license = "Apache-2.0"
+repository = "https://github.com/zaphyid/zaphyl"
+homepage = "https://github.com/zaphyid/zaphyl"
+authors = ["Zaphyl <masterdev@zaphyid.org>"]
+keywords = ["proxy", "http", "reverse-proxy", "web-server", "pingora"]
+categories = ["network-programming", "web-programming"]
+
+# unsafe code is forbidden by default across the workspace.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+
+# Release profile tuned for a production network service.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,6 @@
+# Zaphyl as a reverse proxy to the shared backend (plaintext HTTP/1.1, so the
+# comparison is apples-to-apples with the nginx and Caddy configs).
+listen = "127.0.0.1:18081"
+
+[[route]]
+upstream = "127.0.0.1:18080"

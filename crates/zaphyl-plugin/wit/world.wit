@@ -1,0 +1,38 @@
+package zaphyl:proxy@0.1.0;
+
+/// The request/response filtering contract a Zaphyl plugin implements.
+interface filter {
+    /// An incoming HTTP request handed to a plugin.
+    record http-request {
+        method: string,
+        path: string,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+        client-ip: string,
+    }
+
+    /// An HTTP response a plugin may produce or modify.
+    record http-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// What a plugin decides to do with a request.
+    variant request-action {
+        /// Continue to the next plugin / the upstream with this request.
+        continue(http-request),
+        /// Short-circuit: return this response without contacting the upstream.
+        respond(http-response),
+    }
+
+    /// Called on the way in.
+    handle-request: func(req: http-request) -> request-action;
+    /// Called on the way out, in reverse plugin order.
+    handle-response: func(resp: http-response) -> http-response;
+}
+
+/// A Zaphyl plugin exports the `filter` interface.
+world plugin {
+    export filter;
+}
