@@ -74,23 +74,56 @@ async fn spawn_proxy(config: &str, port: u16) -> ChildGuard {
 
 #[tokio::test]
 async fn proxies_websocket_upgrade() {
+    // The Pingora 0.8.1 HTTP/1.1 duplex path has a race that closes a
+    // WebSocket tunnel right after the 101 for a no-body upgrade request. A
+    // single upgrade does not reliably catch it, so run many back-to-back
+    // upgrade+echo cycles through one proxy. The race is timing-dependent, so a
+    // single run of this test catches a regression only probabilistically; CI
+    // runs the whole file in a loop (see the plan) to make the guard reliable.
+    // With the fix in place, every cycle passes deterministically.
     let upstream = spawn_ws_echo_upstream().await;
     let port = free_port();
     let config = format!("listen = \"127.0.0.1:{port}\"\n\n[[route]]\nupstream = \"{upstream}\"\n");
     let _proxy = spawn_proxy(&config, port).await;
 
-    // Open a WebSocket through the proxy and echo a couple of messages.
+    for cycle in 0..50 {
+        let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let url = format!("ws://127.0.0.1:{port}/");
+        let (mut ws, _response) = tokio_tungstenite::client_async(url, tcp)
+            .await
+            .unwrap_or_else(|e| panic!("cycle {cycle}: upgrade failed: {e:?}"));
+
+        ws.send(Message::text("hello")).await.unwrap();
+        let reply = ws
+            .next()
+            .await
+            .unwrap_or_else(|| panic!("cycle {cycle}: no reply"))
+            .unwrap_or_else(|e| panic!("cycle {cycle}: reply error: {e:?}"));
+        assert_eq!(reply.into_text().unwrap().to_string(), "hello", "cycle {cycle}");
+
+        ws.close(None).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn proxies_websocket_sustained_messages() {
+    // One upgrade, several echo round-trips, proving the tunnel stays
+    // bidirectional past the first frame.
+    let upstream = spawn_ws_echo_upstream().await;
+    let port = free_port();
+    let config = format!("listen = \"127.0.0.1:{port}\"\n\n[[route]]\nupstream = \"{upstream}\"\n");
+    let _proxy = spawn_proxy(&config, port).await;
+
     let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     let url = format!("ws://127.0.0.1:{port}/");
     let (mut ws, _response) = tokio_tungstenite::client_async(url, tcp)
         .await
         .expect("websocket upgrade through the proxy");
 
-    ws.send(Message::text("hello")).await.unwrap();
-    let reply = ws.next().await.expect("a reply").unwrap();
-    assert_eq!(reply.into_text().unwrap().to_string(), "hello");
-
-    ws.send(Message::text("again")).await.unwrap();
-    let reply = ws.next().await.expect("a second reply").unwrap();
-    assert_eq!(reply.into_text().unwrap().to_string(), "again");
+    for i in 0..4 {
+        let msg = format!("msg-{i}");
+        ws.send(Message::text(msg.clone())).await.unwrap();
+        let reply = ws.next().await.expect("a reply").unwrap();
+        assert_eq!(reply.into_text().unwrap().to_string(), msg, "round {i}");
+    }
 }
