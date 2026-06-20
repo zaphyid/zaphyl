@@ -108,7 +108,9 @@ Two closely related edits to `proxy_1to1` in `src/proxy_h1.rs`:
 
 ## Upstream
 
-Reported to Cloudflare: <ISSUE_URL_FILLED_IN_TASK_4>. When a released pingora
+Reported to Cloudflare: not yet filed - issue text ready at
+`_local/pingora-ws-issue.md` for filing on https://github.com/cloudflare/pingora .
+When a released pingora
 version includes this fix, delete `vendor/pingora-proxy/`, remove the
 `[patch.crates-io]` stanza and the `vendor/pingora-proxy` workspace `exclude`
 entry, and bump the dependency. The `proxies_websocket_upgrade` stress test in
