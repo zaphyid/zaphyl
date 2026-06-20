@@ -1,5 +1,7 @@
 //! Configuration types and parsing for Zaphyl.
 
+pub mod sites;
+
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
